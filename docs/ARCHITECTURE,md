@@ -1,0 +1,41 @@
+# Architecture
+
+## System Design
+```
+Client → CDN (Cloudflare) → FastAPI → PostgreSQL
+                                    ↘ MinIO (Object Storage)
+```
+
+## Components
+
+**FastAPI (Origin Server)**
+Handles all API logic, metadata, auth, and caching headers.
+
+**PostgreSQL**
+Stores asset metadata, versions, and access tokens.
+
+**MinIO (Object Storage)**
+Stores actual file content. S3-compatible, swappable with AWS S3.
+
+**CDN Layer**
+Cloudflare/CloudFront sits in front of the API and caches public assets at the edge.
+
+## Caching Strategy
+
+| Content Type | Cache-Control | TTL |
+|---|---|---|
+| Versioned/Immutable | public, max-age=31536000, immutable | 1 year |
+| Mutable public | public, s-maxage=3600, max-age=60 | 1hr CDN / 1min browser |
+| Private | private, no-store, no-cache, must-revalidate | Never cached |
+
+## ETag Flow
+
+1. File uploaded → SHA-256 hash computed → stored as ETag in DB
+2. Client requests file → server returns ETag in response header
+3. Client sends `If-None-Match: "etag"` on next request
+4. Server compares → returns `304 Not Modified` if match (zero bandwidth!)
+
+## Security
+- Private files require cryptographically secure tokens (`secrets.token_hex(32)`)
+- Tokens expire after 1 hour (configurable)
+- Invalid/expired tokens return `401 Unauthorized`
